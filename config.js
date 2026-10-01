@@ -9,5 +9,5 @@
 // NEVER put a "service_role" key in this file or anywhere in this repo.
 //
 // Get these two values from: Supabase Dashboard -> Project Settings -> API.
-const SUPABASE_URL = 'https://YOUR-PROJECT-REF.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR-ANON-PUBLIC-KEY';
+const SUPABASE_URL = 'https://rhmzvwiqdsoqjdmusqnt.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJobXp2d2lxZHNvcWpkbXVzcW50Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA4MTczODksImV4cCI6MjEwNjM5MzM4OX0.UX8Q6miUSpghHjzYGxzzm8n3Rxozy4OcCHWtuyuDEaU';
