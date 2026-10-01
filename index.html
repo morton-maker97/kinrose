@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" type="image/png" href="favicon.ico" />
+<title>kinrose | stream, merch, stay connected</title>
+<meta name="description" content="Explore Kinrose's projects and videos. Stay updated with the latest news by signing up for our newsletter." />
+<style>
+  :root {
+    --bg: #583b1f;
+    --text: #eae6e1;
+    --text-dim: #cbb9a3;
+    --max-width: 960px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.5;
+  }
+  a { color: inherit; text-decoration: none; }
+  a:hover { opacity: 0.75; }
+  img { max-width: 100%; display: block; }
+  .wrap { max-width: var(--max-width); margin: 0 auto; padding: 0 24px; }
+  h1, h2, h3 { font-weight: 600; letter-spacing: -0.01em; }
+
+  /* nav */
+  .nav { padding: 20px 0; }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; }
+  .nav-inner img { height: 32px; width: auto; }
+  .nav nav { display: flex; gap: 24px; font-size: 0.95rem; text-transform: lowercase; }
+
+  /* home */
+  .hero { padding: 80px 24px; display: flex; flex-direction: column; gap: 32px; }
+  .smart-link { display: inline-block; font-size: 0.9rem; text-transform: lowercase; border-bottom: 1px solid currentColor; width: fit-content; }
+  .streaming { font-size: clamp(1.5rem, 5vw, 2.5rem); line-height: 1.4; }
+  .streaming a { border-bottom: 2px solid transparent; }
+  .streaming a:hover { border-bottom-color: currentColor; opacity: 1; }
+
+  /* project list */
+  .list { padding: 48px 24px; display: flex; flex-direction: column; gap: 56px; }
+  .entry img { max-width: 320px; margin-bottom: 16px; border-radius: 4px; }
+  time { display: block; font-size: 0.85rem; color: var(--text-dim); margin-bottom: 8px; }
+  .entry h2 { margin: 0 0 8px; font-size: 1.6rem; text-transform: lowercase; }
+  .more { font-size: 0.85rem; border-bottom: 1px solid currentColor; width: fit-content; display: inline-block; }
+
+  /* project detail */
+  .post { padding: 48px 24px; max-width: 640px; margin: 0 auto; }
+  .post h1 { text-transform: lowercase; font-size: 2rem; margin-bottom: 4px; }
+  .post .cover { margin-bottom: 24px; border-radius: 4px; }
+  .tracklist { padding-left: 1.2em; margin-bottom: 24px; }
+  .tracklist li { margin-bottom: 4px; }
+  .body p { margin-bottom: 1.2em; }
+  .body .credit { font-size: 0.9rem; color: var(--text-dim); margin-top: -8px; }
+  .body .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin: 16px 0 24px; }
+  .body .gallery img { border-radius: 4px; }
+  .body img { border-radius: 4px; margin: 16px 0; }
+  .body a { border-bottom: 1px solid currentColor; }
+  .pager { display: flex; justify-content: space-between; margin-top: 48px; padding-top: 24px; border-top: 1px solid rgba(234, 230, 225, 0.2); font-size: 0.9rem; }
+
+  /* videos */
+  .grid { padding: 48px 24px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 32px; }
+  .frame { position: relative; width: 100%; padding-top: 56.25%; border-radius: 4px; overflow: hidden; }
+  .frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .video p { margin: 10px 0 0; font-size: 0.9rem; }
+
+  /* merch */
+  .merch { padding: 48px 24px; }
+  .merch h1 { text-transform: lowercase; margin-bottom: 24px; }
+  .empty { max-width: 520px; color: var(--text-dim); font-size: 0.9rem; line-height: 1.6; }
+
+  /* newsletter */
+  .newsletter { padding: 48px 24px 64px; border-top: 1px solid rgba(234, 230, 225, 0.2); margin-top: 64px; }
+  .newsletter form { display: flex; flex-wrap: wrap; gap: 12px; max-width: 480px; }
+  .newsletter label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; flex: 1 1 140px; }
+  .newsletter input { padding: 8px 10px; border: 1px solid rgba(234, 230, 225, 0.4); background: transparent; color: var(--text); border-radius: 4px; font-size: 0.95rem; }
+  .newsletter button { padding: 8px 20px; border: 1px solid var(--text); background: var(--text); color: var(--bg); border-radius: 4px; cursor: pointer; font-size: 0.95rem; align-self: flex-end; }
+  .newsletter button:hover { opacity: 0.85; }
+  #newsletter-status { width: 100%; font-size: 0.85rem; min-height: 1.2em; }
+
+  .loading, .error { padding: 48px 24px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a href="#/"><img src="images/logo.png" alt="kinrose" /></a>
+    <nav>
+      <a href="#/projects">projects</a>
+      <a href="#/videos">videos</a>
+    </nav>
+  </div>
+</header>
+
+<main id="app" class="wrap"><p class="loading">Loading...</p></main>
+
+<footer class="newsletter wrap">
+  <h2>Get updates</h2>
+  <p>Sign up with your email address to receive news and updates.</p>
+  <form id="newsletter-form">
+    <label>First Name<input type="text" name="first_name" placeholder="First Name" /></label>
+    <label>Last Name<input type="text" name="last_name" placeholder="Last Name" /></label>
+    <label>Email Address<input type="email" name="email" placeholder="Email Address" required /></label>
+    <button type="submit">Sign Up</button>
+    <p id="newsletter-status" role="status"></p>
+  </form>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script>
+const supa = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const app = document.getElementById('app');
+
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function dateFmt(iso, opts) {
+  return new Date(iso + 'T00:00:00').toLocaleDateString('en-US', opts);
+}
+
+const STREAMING_LINKS = [
+  { label: 'Spotify', href: 'https://open.spotify.com/artist/6SUbi1ZVEswHqRUWsxmq2m?si=J1NJa6XURiuALQ5woMGAGA' },
+  { label: 'Apple', href: 'https://music.apple.com/us/artist/kinrose/1570054161' },
+  { label: 'Youtube', href: 'https://www.youtube.com/channel/UCk0znp3fnhk32JFFi07npmw' },
+  { label: 'Amazon', href: 'https://music.amazon.com/artists/B09674TK37/kinrose' },
+  { label: 'Tidal', href: 'https://tidal.com/artist/25512438' },
+];
+
+function renderHome() {
+  document.title = 'kinrose | stream, merch, stay connected';
+  const links = STREAMING_LINKS.map((l, i) =>
+    `<a href="${l.href}" target="_blank" rel="noreferrer">${l.label}</a>${i < STREAMING_LINKS.length - 1 ? ' <span>&rarr;</span> ' : ''}`
+  ).join('');
+  app.innerHTML = `
+    <section class="hero">
+      <a class="smart-link" href="https://too.fm/ratedpg" target="_blank" rel="noreferrer">latest release: rated pg &rarr;</a>
+      <h1 class="streaming">${links}</h1>
+    </section>`;
+}
+
+async function renderProjectsList() {
+  document.title = 'projects — kinrose';
+  app.innerHTML = '<p class="loading">Loading...</p>';
+  const { data, error } = await supa.from('projects').select('*').order('sort_order', { ascending: true });
+  if (error) { app.innerHTML = `<p class="error">Could not load projects: ${escapeHtml(error.message)}</p>`; return; }
+  app.innerHTML = `<section class="list">${data.map((p) => `
+    <article class="entry">
+      <time>${dateFmt(p.released_on, { month: 'numeric', day: 'numeric', year: '2-digit' })}</time>
+      <a href="#/projects/${p.slug}">
+        <img src="${escapeHtml(p.cover_image)}" alt="${escapeHtml(p.title)}" />
+        <h2>${escapeHtml(p.title)}</h2>
+      </a>
+      <a class="more" href="#/projects/${p.slug}">Read More</a>
+    </article>`).join('')}</section>`;
+}
+
+async function renderProjectDetail(slug) {
+  app.innerHTML = '<p class="loading">Loading...</p>';
+  const { data: projects, error } = await supa.from('projects').select('*').order('sort_order', { ascending: true });
+  if (error) { app.innerHTML = `<p class="error">Could not load this project: ${escapeHtml(error.message)}</p>`; return; }
+
+  const i = projects.findIndex((p) => p.slug === slug);
+  if (i === -1) { app.innerHTML = '<p class="error">Project not found.</p>'; return; }
+  const project = projects[i];
+  const prev = projects[i - 1] ?? null;
+  const next = projects[i + 1] ?? null;
+
+  document.title = `${project.title} — kinrose`;
+
+  let tracklistHtml = '';
+  if (project.show_tracklist) {
+    const { data: tracks } = await supa
+      .from('project_tracks')
+      .select('position, title')
+      .eq('project_id', project.id)
+      .order('position', { ascending: true });
+    tracklistHtml = `<ol class="tracklist">${(tracks ?? []).map((t) => `<li>${escapeHtml(t.title)}</li>`).join('')}</ol>`;
+  }
+
+  const coverImg = `<img class="cover" src="${escapeHtml(project.cover_image)}" alt="${escapeHtml(project.title)}" />`;
+  const coverHtml = project.cover_link
+    ? `<a href="${escapeHtml(project.cover_link)}" target="_blank" rel="noreferrer">${coverImg}</a>`
+    : coverImg;
+
+  // body_html is hand-authored by us (not user input), so it's safe to insert as trusted markup.
+  const bodyHtml = project.body_html ? `<div class="body">${project.body_html}</div>` : '';
+
+  app.innerHTML = `
+    <article class="post">
+      <h1>${escapeHtml(project.title)}</h1>
+      <time>${dateFmt(project.released_on, { month: 'short', day: 'numeric' })}</time>
+      ${coverHtml}
+      ${tracklistHtml}
+      ${bodyHtml}
+      <nav class="pager">
+        ${prev ? `<a href="#/projects/${prev.slug}">&larr; ${escapeHtml(prev.title)}</a>` : '<span></span>'}
+        ${next ? `<a href="#/projects/${next.slug}">${escapeHtml(next.title)} &rarr;</a>` : '<span></span>'}
+      </nav>
+    </article>`;
+}
+
+async function renderVideos() {
+  document.title = 'kinrose videos | video catalog – Watch Now — kinrose';
+  app.innerHTML = '<p class="loading">Loading...</p>';
+  const { data, error } = await supa.from('videos').select('*').order('sort_order', { ascending: true });
+  if (error) { app.innerHTML = `<p class="error">Could not load videos: ${escapeHtml(error.message)}</p>`; return; }
+  app.innerHTML = `<section class="grid">${data.map((v) => `
+    <div class="video">
+      <div class="frame">
+        <iframe src="https://www.youtube.com/embed/${encodeURIComponent(v.youtube_id)}" title="${escapeHtml(v.title)}" loading="lazy"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+      </div>
+      <p>${escapeHtml(v.title)}</p>
+    </div>`).join('')}</section>`;
+}
+
+function renderMerch() {
+  document.title = 'merch — kinrose';
+  app.innerHTML = `
+    <section class="merch">
+      <h1>merch</h1>
+      <p class="empty">Merch isn't connected yet. Once you set up a Shopify store, this page is where product
+      listings linking to Shopify checkout will go — see the "Connecting merch" section of the README for how
+      to wire that up.</p>
+    </section>`;
+}
+
+function router() {
+  const hash = location.hash.replace(/^#\/?/, '');
+  const [section, param] = hash.split('/');
+  if (!section) return renderHome();
+  if (section === 'projects' && param) return renderProjectDetail(param);
+  if (section === 'projects') return renderProjectsList();
+  if (section === 'videos') return renderVideos();
+  if (section === 'merch') return renderMerch();
+  app.innerHTML = '<p class="error">Page not found.</p>';
+}
+
+window.addEventListener('hashchange', router);
+router();
+
+// newsletter signup -> writes straight to Supabase (anon key can only INSERT, per schema.sql RLS)
+const form = document.getElementById('newsletter-form');
+const status = document.getElementById('newsletter-status');
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const data = new FormData(form);
+  const email = String(data.get('email') || '').trim();
+  if (!email) return;
+  status.textContent = 'Signing up...';
+  const { error } = await supa.from('newsletter_signups').insert({
+    first_name: String(data.get('first_name') || '').trim() || null,
+    last_name: String(data.get('last_name') || '').trim() || null,
+    email,
+  });
+  if (error) {
+    status.textContent = error.code === '23505' ? "You're already signed up. Thank you!" : 'Something went wrong, please try again.';
+    return;
+  }
+  status.textContent = 'Thank you!';
+  form.reset();
+});
+</script>
+</body>
+</html>
