@@ -20,6 +20,7 @@
     --bg: #583b1f;
     --text: #eae6e1;
     --text-dim: #cbb9a3;
+    --link: #eae6e1;
     --card-bg: #6b4b29;
     --radius: 8px;
     --font-heading: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
@@ -34,7 +35,7 @@
     font-family: var(--font-body);
     line-height: 1.5;
   }
-  a { color: inherit; text-decoration: none; }
+  a { color: var(--link); text-decoration: none; }
   a:hover { opacity: 0.75; }
   img { max-width: 100%; display: block; }
   .wrap { max-width: var(--max-width); margin: 0 auto; padding: 0 24px; }
@@ -176,6 +177,7 @@
       <label class="flex items-center justify-between text-sm">Background <input type="color" id="theme-bg" /></label>
       <label class="flex items-center justify-between text-sm">Text <input type="color" id="theme-text" /></label>
       <label class="flex items-center justify-between text-sm">Muted text <input type="color" id="theme-text-dim" /></label>
+      <label class="flex items-center justify-between text-sm">Link color <input type="color" id="theme-link" /></label>
       <label class="flex items-center justify-between text-sm">Card background <input type="color" id="theme-card-bg" /></label>
     </div>
     <label class="flex flex-col gap-1 text-sm mt-4">
@@ -241,7 +243,7 @@ const FONT_STACKS = {
 };
 
 const DEFAULT_THEME = {
-  bg_color: '#583b1f', text_color: '#eae6e1', text_dim_color: '#cbb9a3',
+  bg_color: '#583b1f', text_color: '#eae6e1', text_dim_color: '#cbb9a3', link_color: '#eae6e1',
   card_bg_color: '#6b4b29', radius: '8px', heading_font: 'system', body_font: 'system',
 };
 
@@ -252,6 +254,7 @@ function applyTheme(t) {
   root.style.setProperty('--bg', t.bg_color);
   root.style.setProperty('--text', t.text_color);
   root.style.setProperty('--text-dim', t.text_dim_color);
+  root.style.setProperty('--link', t.link_color);
   root.style.setProperty('--card-bg', t.card_bg_color);
   root.style.setProperty('--radius', t.radius);
   root.style.setProperty('--font-heading', FONT_STACKS[t.heading_font] || FONT_STACKS.system);
@@ -264,13 +267,14 @@ async function fetchTheme() {
   applyTheme(theme);
 }
 
-const THEME_FIELD_IDS = ['theme-bg', 'theme-text', 'theme-text-dim', 'theme-card-bg', 'theme-radius', 'theme-heading-font', 'theme-body-font'];
+const THEME_FIELD_IDS = ['theme-bg', 'theme-text', 'theme-text-dim', 'theme-link', 'theme-card-bg', 'theme-radius', 'theme-heading-font', 'theme-body-font'];
 
 function readThemeForm() {
   return {
     bg_color: document.getElementById('theme-bg').value,
     text_color: document.getElementById('theme-text').value,
     text_dim_color: document.getElementById('theme-text-dim').value,
+    link_color: document.getElementById('theme-link').value,
     card_bg_color: document.getElementById('theme-card-bg').value,
     radius: document.getElementById('theme-radius').value,
     heading_font: document.getElementById('theme-heading-font').value,
@@ -293,6 +297,7 @@ function openThemeDrawer() {
   document.getElementById('theme-bg').value = theme.bg_color;
   document.getElementById('theme-text').value = theme.text_color;
   document.getElementById('theme-text-dim').value = theme.text_dim_color;
+  document.getElementById('theme-link').value = theme.link_color;
   document.getElementById('theme-card-bg').value = theme.card_bg_color;
   document.getElementById('theme-radius').value = theme.radius;
   document.getElementById('theme-heading-font').value = theme.heading_font;
@@ -363,6 +368,8 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 let editingBlockId = null;
 let addingToZone = null;
 let addingType = null;
+let zoneBlockOrder = {}; // zone -> array of block ids, in last-rendered order (used for drag-and-drop)
+let draggedBlockId = null;
 
 async function fetchBlocks(zone) {
   const { data, error } = await supa.from('blocks').select('*').eq('zone', zone).order('position', { ascending: true });
@@ -386,6 +393,9 @@ async function collectBlockContent(form, type) {
   if (type === 'image') {
     return { url: uploadedUrl || (get('url')?.value || '').trim(), alt: (get('alt')?.value || '').trim() };
   }
+  if (type === 'embed') {
+    return { url: (get('url')?.value || '').trim(), height: Number(get('height')?.value) || 152 };
+  }
   return {
     title: (get('title')?.value || '').trim(),
     body: (get('body')?.value || '').trim(),
@@ -404,6 +414,15 @@ function blockFormFields(type, c) {
       <input data-field="file" type="file" accept="image/*" class="w-full text-sm mb-2" />
       <input data-field="alt" type="text" value="${escapeHtml(c.alt || '')}" placeholder="Alt text" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)]" />`;
   }
+  if (type === 'embed') {
+    return `
+      <input data-field="url" type="text" value="${escapeHtml(c.url || '')}" placeholder="Paste a Spotify, Apple Music, SoundCloud, or YouTube link" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+      <label class="flex items-center gap-2 text-sm">
+        Height (px)
+        <input data-field="height" type="number" min="100" step="1" value="${escapeHtml(c.height || 152)}" class="w-24 px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)]" />
+      </label>
+      <p class="text-xs opacity-60 mt-1">A single track is usually ~152px, an album/playlist with a visible tracklist is better around 352px.</p>`;
+  }
   return `
     <input data-field="title" type="text" value="${escapeHtml(c.title || '')}" placeholder="Card title" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
     <textarea data-field="body" rows="3" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" placeholder="Card text">${escapeHtml(c.body || '')}</textarea>
@@ -411,10 +430,36 @@ function blockFormFields(type, c) {
     <input data-field="file" type="file" accept="image/*" class="w-full text-sm" />`;
 }
 
+// Turns a plain share link (Spotify, Apple Music, SoundCloud, YouTube) into its embeddable
+// form. If given a raw <iframe> embed snippet instead, pulls the src out of that. Anything
+// else is used as-is, in case it's already a direct embed URL.
+function toEmbedSrc(raw) {
+  raw = (raw || '').trim();
+  const iframeMatch = raw.match(/src=["']([^"']+)["']/i);
+  if (iframeMatch) return iframeMatch[1];
+
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.replace(/^www\./, '');
+    if (host === 'open.spotify.com') return raw.replace('open.spotify.com/', 'open.spotify.com/embed/');
+    if (host === 'music.apple.com') return raw.replace('music.apple.com', 'embed.music.apple.com');
+    if (host === 'soundcloud.com') return `https://w.soundcloud.com/player/?url=${encodeURIComponent(raw)}&color=%23583b1f&auto_play=false`;
+    if (host === 'youtube.com') { const id = url.searchParams.get('v'); if (id) return `https://www.youtube.com/embed/${id}`; }
+    if (host === 'youtu.be') return `https://www.youtube.com/embed/${url.pathname.slice(1)}`;
+  } catch (e) { /* not a parseable URL -- fall through and use it as-is */ }
+
+  return raw;
+}
+
 // Shared renderer: used both for a saved block's normal view AND for the live preview
 // inside an add/edit form, so the preview always matches exactly what will be saved.
 function renderBlockContent(type, content) {
   content = content || {};
+  if (type === 'embed') {
+    if (!content.url) return '<p class="opacity-50 text-sm">Paste a link below to preview it</p>';
+    const height = Number(content.height) || 152;
+    return `<iframe src="${escapeHtml(toEmbedSrc(content.url))}" height="${height}" style="width:100%;border:0;border-radius:var(--radius);display:block;" loading="lazy" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"></iframe>`;
+  }
   if (type === 'text') {
     const paras = (content.text || '').split('\n').filter(Boolean).map((l) => `<p>${escapeHtml(l)}</p>`).join('');
     return `<div class="block-text">${paras || '<p class="opacity-50 text-sm">(empty)</p>'}</div>`;
@@ -438,6 +483,7 @@ function readBlockFormValuesForPreview(form, type) {
   const filePreviewUrl = fileInput && fileInput.files && fileInput.files[0] ? URL.createObjectURL(fileInput.files[0]) : null;
   if (type === 'text') return { text: get('text')?.value || '' };
   if (type === 'image') return { url: filePreviewUrl || (get('url')?.value || ''), alt: get('alt')?.value || '' };
+  if (type === 'embed') return { url: get('url')?.value || '', height: get('height')?.value || 152 };
   return {
     title: get('title')?.value || '',
     body: get('body')?.value || '',
@@ -483,7 +529,8 @@ function blockEditForm(b) {
 function renderBlockView(b, isFirst, isLast) {
   const inner = renderBlockContent(b.type, b.content);
   const controls = isAdmin ? `
-    <div class="flex gap-2 mt-2 text-xs opacity-80">
+    <div class="flex gap-2 mt-2 text-xs opacity-80 items-center">
+      <span class="drag-handle cursor-move px-2 py-1 rounded border border-white/30 select-none" draggable="true" title="Drag to reorder">&#10021;&#10021;</span>
       <button data-action="block-move-up" data-id="${b.id}" class="px-2 py-1 rounded border border-white/30" ${isFirst ? 'disabled' : ''}>&uarr;</button>
       <button data-action="block-move-down" data-id="${b.id}" class="px-2 py-1 rounded border border-white/30" ${isLast ? 'disabled' : ''}>&darr;</button>
       <button data-action="block-edit-start" data-id="${b.id}" class="px-2 py-1 rounded border border-white/30">Edit</button>
@@ -494,6 +541,7 @@ function renderBlockView(b, isFirst, isLast) {
 
 async function renderZone(zone) {
   const list = await fetchBlocks(zone);
+  zoneBlockOrder[zone] = list.map((b) => b.id);
   let html = `<div class="zone" data-zone="${escapeHtml(zone)}">`;
   list.forEach((b, i) => {
     html += isAdmin && editingBlockId === b.id
@@ -507,6 +555,7 @@ async function renderZone(zone) {
           <button data-action="block-add-start" data-zone="${escapeHtml(zone)}" data-type="text" class="px-3 py-1.5 rounded border border-white/30">+ Text</button>
           <button data-action="block-add-start" data-zone="${escapeHtml(zone)}" data-type="image" class="px-3 py-1.5 rounded border border-white/30">+ Image</button>
           <button data-action="block-add-start" data-zone="${escapeHtml(zone)}" data-type="card" class="px-3 py-1.5 rounded border border-white/30">+ Card</button>
+          <button data-action="block-add-start" data-zone="${escapeHtml(zone)}" data-type="embed" class="px-3 py-1.5 rounded border border-white/30">+ Embed</button>
         </div>`;
   }
   html += '</div>';
@@ -524,6 +573,57 @@ async function moveBlock(id, dir) {
   await supa.from('blocks').update({ position: b.position }).eq('id', a.id);
   await supa.from('blocks').update({ position: a.position }).eq('id', b.id);
 }
+
+async function dropBlock(zone, draggedId, targetId, insertAfter) {
+  const order = (zoneBlockOrder[zone] || []).filter((id) => id !== draggedId);
+  const targetIdx = order.indexOf(targetId);
+  if (targetIdx === -1) return;
+  order.splice(insertAfter ? targetIdx + 1 : targetIdx, 0, draggedId);
+  await Promise.all(order.map((id, i) => supa.from('blocks').update({ position: i }).eq('id', id)));
+}
+
+document.addEventListener('dragstart', (e) => {
+  const handle = e.target.closest('.drag-handle');
+  const wrap = handle && handle.closest('.block-wrap');
+  if (!wrap) return;
+  draggedBlockId = wrap.dataset.id;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', draggedBlockId);
+});
+
+document.addEventListener('dragover', (e) => {
+  if (!draggedBlockId || !e.target.closest('.block-wrap')) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+});
+
+document.addEventListener('dragenter', (e) => {
+  const wrap = e.target.closest('.block-wrap');
+  if (wrap && draggedBlockId) wrap.classList.add('ring-2', 'ring-white/60');
+});
+
+document.addEventListener('dragleave', (e) => {
+  const wrap = e.target.closest('.block-wrap');
+  if (wrap) wrap.classList.remove('ring-2', 'ring-white/60');
+});
+
+document.addEventListener('dragend', () => { draggedBlockId = null; });
+
+document.addEventListener('drop', async (e) => {
+  const wrap = e.target.closest('.block-wrap');
+  if (!wrap || !draggedBlockId) return;
+  e.preventDefault();
+  const targetId = wrap.dataset.id;
+  const zone = wrap.closest('.zone')?.dataset.zone;
+  const dragged = draggedBlockId;
+  draggedBlockId = null;
+  wrap.classList.remove('ring-2', 'ring-white/60');
+  if (!zone || targetId === dragged) return;
+  const rect = wrap.getBoundingClientRect();
+  const insertAfter = (e.clientY - rect.top) > rect.height / 2;
+  await dropBlock(zone, dragged, targetId, insertAfter);
+  router();
+});
 
 document.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-action]');
