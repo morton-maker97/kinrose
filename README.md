@@ -9,8 +9,8 @@ A plain static site (one `index.html`, no build step, no Node/npm) + Supabase, m
 - `supabase/schema.sql`, `supabase/seed.sql` — the database, and the content migrated from the live site
 - `images/` — cover art and photos downloaded from the old Squarespace CDN
 - `CNAME` — tells GitHub Pages this site should answer at `kinrose.co`
-- `supabase/admin_schema.sql` — adds your admin login, a site-wide theme (colors/fonts/corners), and
-  freeform content blocks (text/image/card) you can add to any page
+- `supabase/admin_schema.sql` — adds your admin login, a site-wide theme (colors/fonts/corners), freeform
+  content blocks (text/image/card/embed), and the ability to edit all the migrated content from the site itself
 
 ## One-time setup (everything in a browser — no installs)
 
@@ -29,11 +29,17 @@ hasn't been run yet, or `config.js` still has the placeholder `YOUR-PROJECT-REF`
 real Supabase URL/key. Open the browser's console (right-click → Inspect → Console) on the page for the
 actual error.
 
-**Already ran the old `schema.sql` before admin login existed?** Run
-[`supabase/fix_authenticated_reads.sql`](supabase/fix_authenticated_reads.sql) once now — it patches a bug
-where logging in as admin made the projects/videos pages look empty (the original policies only allowed
-reads from logged-out visitors; this adds logged-in reads too). A fresh setup following the steps below
-doesn't need this extra file, since the fix is already folded into `schema.sql` itself.
+**Already had this site set up before some of these features existed?** Run whichever of these you haven't
+yet, each once, in the SQL Editor (a brand new setup following the steps below doesn't need any of
+them — they're already folded into `schema.sql`/`admin_schema.sql`):
+- [`supabase/fix_authenticated_reads.sql`](supabase/fix_authenticated_reads.sql) — fixes projects/videos
+  looking empty while logged in as admin
+- [`supabase/add_link_color.sql`](supabase/add_link_color.sql) — adds the "link color" theme option
+- [`supabase/add_embed_blocks.sql`](supabase/add_embed_blocks.sql) — adds the Spotify/Apple Music/SoundCloud/
+  YouTube "embed" block type
+- [`supabase/add_editable_content.sql`](supabase/add_editable_content.sql) — lets you edit projects,
+  tracklists, videos, and the home page's streaming links from the site itself (previously only readable,
+  not writable, outside of Supabase's own Table Editor)
 
 ### 2b. Set up your admin login (so you can edit the live site yourself)
 This is optional, but it's what gives you the Squarespace-style "edit anything while logged in" experience.
@@ -95,7 +101,17 @@ once it's verified.
 
 Once you've done step 2b, click **admin** in the site's nav bar and log in with the email/password you
 created. While logged in, a yellow banner across the top of every page reminds you that you're in admin
-mode and that changes are live for everyone (with a quick **Log out** link right there). You'll also see:
+mode and that changes are live for everyone (with a quick **Log out** link right there).
+
+**Everything on the site is editable now, not just new additions:**
+- **Home page**: Edit the "latest release" link, and add/edit/delete/reorder the streaming service links.
+- **Projects**: + Add project, Edit/Delete/reorder each one from the listing page. On a project's own page,
+  Edit also lets you change its tracklist (add/edit/delete/reorder tracks) and its "extra content" (the
+  credits, galleries, and writeups — edited as raw HTML, since that's how it was originally authored).
+- **Videos**: + Add video (paste a YouTube link or just the video ID), Edit/Delete/reorder each one.
+- Plus the freeform blocks described below, which still work the same as before.
+
+You'll see:
 
 - **theme** (nav link) opens a panel to change the background color, text color, muted-text color, card
   background color, corner roundness, and heading/body fonts — site-wide, applied instantly, no redeploy.

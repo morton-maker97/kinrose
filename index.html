@@ -245,6 +245,7 @@ const FONT_STACKS = {
 const DEFAULT_THEME = {
   bg_color: '#583b1f', text_color: '#eae6e1', text_dim_color: '#cbb9a3', link_color: '#eae6e1',
   card_bg_color: '#6b4b29', radius: '8px', heading_font: 'system', body_font: 'system',
+  hero_link_text: 'latest release: rated pg', hero_link_href: 'https://too.fm/ratedpg',
 };
 
 let theme = DEFAULT_THEME;
@@ -263,7 +264,9 @@ function applyTheme(t) {
 
 async function fetchTheme() {
   const { data } = await supa.from('site_theme').select('*').eq('id', 1).maybeSingle();
-  theme = data || DEFAULT_THEME;
+  // Merge over defaults so a column added after your site was set up (e.g. hero_link_text)
+  // doesn't come back undefined and break things before you've run that migration.
+  theme = { ...DEFAULT_THEME, ...(data || {}) };
   applyTheme(theme);
 }
 
@@ -370,6 +373,202 @@ let addingToZone = null;
 let addingType = null;
 let zoneBlockOrder = {}; // zone -> array of block ids, in last-rendered order (used for drag-and-drop)
 let draggedBlockId = null;
+
+/* ---------- editing the originally-migrated content ---------- */
+
+let editingProjectId = null;
+let addingProject = false;
+let editingTrackId = null;
+let addingTrackForProject = null;
+let editingVideoId = null;
+let addingVideo = false;
+let editingStreamingLinkId = null;
+let addingStreamingLink = false;
+let editingHeroLink = false;
+
+function extractYoutubeId(input) {
+  input = (input || '').trim();
+  try {
+    const url = new URL(input);
+    const host = url.hostname.replace(/^www\./, '');
+    if (host === 'youtu.be') return url.pathname.slice(1);
+    if (host === 'youtube.com') return url.searchParams.get('v') || input;
+  } catch (e) { /* not a URL -- assume it's already just the video id */ }
+  return input;
+}
+
+// zoneColumn/zoneValue scope the reorder to siblings sharing that value (e.g. tracks within
+// one project); pass zoneColumn as null for tables with no such grouping (projects, videos,
+// streaming_links), which reorders against every row in the table.
+async function moveRow(table, id, zoneColumn, zoneValue, orderColumn, dir) {
+  let query = supa.from(table).select(`id, ${orderColumn}`).order(orderColumn, { ascending: true });
+  if (zoneColumn) query = query.eq(zoneColumn, zoneValue);
+  const { data: siblings } = await query;
+  const idx = siblings.findIndex((s) => s.id === id);
+  const swapIdx = idx + dir;
+  if (swapIdx < 0 || swapIdx >= siblings.length) return;
+  const a = siblings[idx], b = siblings[swapIdx];
+  await supa.from(table).update({ [orderColumn]: b[orderColumn] }).eq('id', a.id);
+  await supa.from(table).update({ [orderColumn]: a[orderColumn] }).eq('id', b.id);
+}
+
+async function collectProjectForm(form) {
+  const get = (name) => form.querySelector(`[data-field="${name}"]`);
+  const fileInput = get('file');
+  let coverImage = get('cover_image').value.trim();
+  if (fileInput && fileInput.files && fileInput.files[0]) {
+    const file = fileInput.files[0];
+    const path = `${Date.now()}-${file.name}`.replace(/\s+/g, '-');
+    const { error: upErr } = await supa.storage.from('site-images').upload(path, file, { upsert: true });
+    if (upErr) { alert('Image upload failed: ' + upErr.message); return null; }
+    coverImage = supa.storage.from('site-images').getPublicUrl(path).data.publicUrl;
+  }
+  const values = {
+    title: get('title').value.trim(),
+    slug: get('slug').value.trim(),
+    released_on: get('released_on').value,
+    cover_image: coverImage,
+    cover_link: get('cover_link').value.trim() || null,
+    show_tracklist: get('show_tracklist').checked,
+  };
+  const bodyField = get('body_html');
+  if (bodyField) values.body_html = bodyField.value.trim() || null;
+  return values;
+}
+
+function projectCard(p, admin, isFirst, isLast) {
+  const controls = admin ? `
+    <div class="flex gap-2 mt-2 text-xs opacity-80">
+      <button data-action="project-move-up" data-id="${p.id}" class="px-2 py-1 rounded border border-white/30" ${isFirst ? 'disabled' : ''}>&uarr;</button>
+      <button data-action="project-move-down" data-id="${p.id}" class="px-2 py-1 rounded border border-white/30" ${isLast ? 'disabled' : ''}>&darr;</button>
+      <button data-action="project-edit-start" data-id="${p.id}" class="px-2 py-1 rounded border border-white/30">Edit</button>
+      <button data-action="project-delete" data-id="${p.id}" class="px-2 py-1 rounded border border-white/30">Delete</button>
+    </div>` : '';
+  return `<article class="entry">
+    <time>${dateFmt(p.released_on, { month: 'numeric', day: 'numeric', year: '2-digit' })}</time>
+    <a href="#/projects/${p.slug}">
+      <img src="${escapeHtml(p.cover_image)}" alt="${escapeHtml(p.title)}" />
+      <h2>${escapeHtml(p.title)}</h2>
+    </a>
+    <a class="more" href="#/projects/${p.slug}">Read More</a>
+    ${controls}
+  </article>`;
+}
+
+function projectForm(p, includeBodyHtml) {
+  p = p || { title: '', slug: '', released_on: '', cover_image: '', cover_link: '', show_tracklist: true, body_html: '' };
+  const isNew = !p.id;
+  const bodyField = includeBodyHtml ? `
+    <label class="text-sm block mb-1">Extra content (HTML) -- credits, galleries, writeups</label>
+    <textarea data-field="body_html" rows="6" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] text-xs font-mono mb-2">${escapeHtml(p.body_html || '')}</textarea>` : '';
+  const deleteBtn = !isNew ? `<button data-action="project-delete" data-id="${p.id}" class="px-3 py-1.5 rounded border border-red-400 text-red-300 text-sm">Delete project</button>` : '<span></span>';
+  return `<div class="block-form p-4 rounded border border-dashed border-white/40 mb-4" data-kind="project">
+    <input data-field="title" type="text" value="${escapeHtml(p.title)}" placeholder="Title" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <input data-field="slug" type="text" value="${escapeHtml(p.slug)}" placeholder="URL slug (e.g. my-new-ep)" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <p class="text-xs opacity-60 -mt-1 mb-2">Changing the slug changes this project's URL.</p>
+    <input data-field="released_on" type="date" value="${escapeHtml(p.released_on || '')}" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <input data-field="cover_image" type="text" value="${escapeHtml(p.cover_image)}" placeholder="Cover image URL" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <input data-field="file" type="file" accept="image/*" class="w-full text-sm mb-2" />
+    <input data-field="cover_link" type="text" value="${escapeHtml(p.cover_link || '')}" placeholder="Cover link (optional smart-link URL)" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <label class="flex items-center gap-2 text-sm mb-2"><input data-field="show_tracklist" type="checkbox" ${p.show_tracklist ? 'checked' : ''} /> Show numbered tracklist</label>
+    ${bodyField}
+    <div class="flex gap-2 justify-between mt-3">
+      ${deleteBtn}
+      <div class="flex gap-2">
+        <button data-action="project-cancel" class="px-3 py-1.5 rounded border border-white/30 text-sm">Cancel</button>
+        <button data-action="${isNew ? 'project-add-save' : 'project-edit-save'}" data-id="${p.id || ''}" class="px-3 py-1.5 rounded bg-[var(--text)] text-[var(--bg)] text-sm">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function trackRow(t, admin, isFirst, isLast) {
+  const controls = admin ? `
+    <span class="inline-flex gap-1 ml-2 text-xs opacity-80 align-middle">
+      <button data-action="track-move-up" data-id="${t.id}" class="px-1.5 py-0.5 rounded border border-white/30" ${isFirst ? 'disabled' : ''}>&uarr;</button>
+      <button data-action="track-move-down" data-id="${t.id}" class="px-1.5 py-0.5 rounded border border-white/30" ${isLast ? 'disabled' : ''}>&darr;</button>
+      <button data-action="track-edit-start" data-id="${t.id}" class="px-1.5 py-0.5 rounded border border-white/30">Edit</button>
+      <button data-action="track-delete" data-id="${t.id}" class="px-1.5 py-0.5 rounded border border-white/30">Delete</button>
+    </span>` : '';
+  return `<li>${escapeHtml(t.title)}${controls}</li>`;
+}
+
+function trackForm(t, projectId) {
+  t = t || { title: '' };
+  const isNew = !t.id;
+  return `<div class="block-form p-3 rounded border border-dashed border-white/40 my-2" data-kind="track">
+    <input data-field="title" type="text" value="${escapeHtml(t.title)}" placeholder="Track title" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <div class="flex gap-2 justify-end">
+      <button data-action="track-cancel" class="px-3 py-1 rounded border border-white/30 text-sm">Cancel</button>
+      <button data-action="${isNew ? 'track-add-save' : 'track-edit-save'}" data-id="${t.id || ''}" data-project-id="${projectId}" class="px-3 py-1 rounded bg-[var(--text)] text-[var(--bg)] text-sm">Save</button>
+    </div>
+  </div>`;
+}
+
+function videoRow(v, admin, isFirst, isLast) {
+  const controls = admin ? `
+    <div class="flex gap-2 mt-2 text-xs opacity-80">
+      <button data-action="video-move-up" data-id="${v.id}" class="px-2 py-1 rounded border border-white/30" ${isFirst ? 'disabled' : ''}>&uarr;</button>
+      <button data-action="video-move-down" data-id="${v.id}" class="px-2 py-1 rounded border border-white/30" ${isLast ? 'disabled' : ''}>&darr;</button>
+      <button data-action="video-edit-start" data-id="${v.id}" class="px-2 py-1 rounded border border-white/30">Edit</button>
+      <button data-action="video-delete" data-id="${v.id}" class="px-2 py-1 rounded border border-white/30">Delete</button>
+    </div>` : '';
+  return `<div class="video">
+    <div class="frame">
+      <iframe src="https://www.youtube.com/embed/${encodeURIComponent(v.youtube_id)}" title="${escapeHtml(v.title)}" loading="lazy"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </div>
+    <p>${escapeHtml(v.title)}</p>
+    ${controls}
+  </div>`;
+}
+
+function videoForm(v) {
+  v = v || { title: '', youtube_id: '' };
+  const isNew = !v.id;
+  return `<div class="video block-form p-3" data-kind="video">
+    <input data-field="title" type="text" value="${escapeHtml(v.title)}" placeholder="Video title" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <input data-field="youtube_id" type="text" value="${escapeHtml(v.youtube_id)}" placeholder="YouTube link or video ID" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <div class="flex gap-2 justify-end">
+      <button data-action="video-cancel" class="px-3 py-1 rounded border border-white/30 text-sm">Cancel</button>
+      <button data-action="${isNew ? 'video-add-save' : 'video-edit-save'}" data-id="${v.id || ''}" class="px-3 py-1 rounded bg-[var(--text)] text-[var(--bg)] text-sm">Save</button>
+    </div>
+  </div>`;
+}
+
+function streamingLinkRow(l, isFirst, isLast) {
+  return `<div class="flex items-center gap-2 text-sm">
+    <span class="flex-1 truncate">${escapeHtml(l.label)} &rarr; ${escapeHtml(l.href)}</span>
+    <button data-action="streaminglink-move-up" data-id="${l.id}" class="px-1.5 py-0.5 rounded border border-white/30 text-xs" ${isFirst ? 'disabled' : ''}>&uarr;</button>
+    <button data-action="streaminglink-move-down" data-id="${l.id}" class="px-1.5 py-0.5 rounded border border-white/30 text-xs" ${isLast ? 'disabled' : ''}>&darr;</button>
+    <button data-action="streaminglink-edit-start" data-id="${l.id}" class="px-1.5 py-0.5 rounded border border-white/30 text-xs">Edit</button>
+    <button data-action="streaminglink-delete" data-id="${l.id}" class="px-1.5 py-0.5 rounded border border-white/30 text-xs">Delete</button>
+  </div>`;
+}
+
+function streamingLinkForm(l) {
+  l = l || { label: '', href: '' };
+  const isNew = !l.id;
+  return `<div class="block-form p-3 rounded border border-dashed border-white/40" data-kind="streaminglink">
+    <input data-field="label" type="text" value="${escapeHtml(l.label)}" placeholder="Label (e.g. Spotify)" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <input data-field="href" type="text" value="${escapeHtml(l.href)}" placeholder="URL" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <div class="flex gap-2 justify-end">
+      <button data-action="streaminglink-cancel" class="px-3 py-1 rounded border border-white/30 text-sm">Cancel</button>
+      <button data-action="${isNew ? 'streaminglink-add-save' : 'streaminglink-edit-save'}" data-id="${l.id || ''}" class="px-3 py-1 rounded bg-[var(--text)] text-[var(--bg)] text-sm">Save</button>
+    </div>
+  </div>`;
+}
+
+function heroLinkForm() {
+  return `<div class="block-form p-3 rounded border border-dashed border-white/40 mb-2 max-w-md" data-kind="herolink">
+    <input data-field="hero_link_text" type="text" value="${escapeHtml(theme.hero_link_text)}" placeholder="Hero link text" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <input data-field="hero_link_href" type="text" value="${escapeHtml(theme.hero_link_href)}" placeholder="Hero link URL" class="w-full px-3 py-2 rounded bg-[var(--bg)] border border-white/30 text-[var(--text)] mb-2" />
+    <div class="flex gap-2 justify-end">
+      <button data-action="herolink-cancel" class="px-3 py-1 rounded border border-white/30 text-sm">Cancel</button>
+      <button data-action="herolink-save" class="px-3 py-1 rounded bg-[var(--text)] text-[var(--bg)] text-sm">Save</button>
+    </div>
+  </div>`;
+}
 
 async function fetchBlocks(zone) {
   const { data, error } = await supa.from('blocks').select('*').eq('zone', zone).order('position', { ascending: true });
@@ -667,28 +866,184 @@ document.addEventListener('click', async (e) => {
     await moveBlock(btn.dataset.id, action === 'block-move-up' ? -1 : 1);
     return router();
   }
+
+  // -- projects --
+  if (action === 'project-add-start') { addingProject = true; return router(); }
+  if (action === 'project-cancel') { addingProject = false; editingProjectId = null; return router(); }
+  if (action === 'project-add-save') {
+    const form = btn.closest('.block-form');
+    const values = await collectProjectForm(form);
+    if (!values) return;
+    const { data: maxRow } = await supa.from('projects').select('sort_order').order('sort_order', { ascending: false }).limit(1).maybeSingle();
+    const { error } = await supa.from('projects').insert({ ...values, sort_order: (maxRow?.sort_order ?? 0) + 1 });
+    if (error) { alert('Could not add project: ' + error.message); return; }
+    addingProject = false;
+    return router();
+  }
+  if (action === 'project-edit-start') { editingProjectId = btn.dataset.id; return router(); }
+  if (action === 'project-edit-save') {
+    const form = btn.closest('.block-form');
+    const values = await collectProjectForm(form);
+    if (!values) return;
+    const { error } = await supa.from('projects').update(values).eq('id', btn.dataset.id);
+    if (error) { alert('Could not save: ' + error.message); return; }
+    editingProjectId = null;
+    return router();
+  }
+  if (action === 'project-delete') {
+    if (!confirm('Delete this project? This also deletes its tracklist.')) return;
+    await supa.from('projects').delete().eq('id', btn.dataset.id);
+    editingProjectId = null;
+    location.hash = '#/projects';
+    return router();
+  }
+  if (action === 'project-move-up' || action === 'project-move-down') {
+    await moveRow('projects', btn.dataset.id, null, null, 'sort_order', action === 'project-move-up' ? -1 : 1);
+    return router();
+  }
+
+  // -- project tracks --
+  if (action === 'track-add-start') { addingTrackForProject = btn.dataset.projectId; return router(); }
+  if (action === 'track-cancel') { addingTrackForProject = null; editingTrackId = null; return router(); }
+  if (action === 'track-add-save') {
+    const form = btn.closest('.block-form');
+    const title = form.querySelector('[data-field="title"]').value.trim();
+    if (!title) return;
+    const { data: maxRow } = await supa.from('project_tracks').select('position').eq('project_id', btn.dataset.projectId).order('position', { ascending: false }).limit(1).maybeSingle();
+    await supa.from('project_tracks').insert({ project_id: btn.dataset.projectId, title, position: (maxRow?.position ?? 0) + 1 });
+    addingTrackForProject = null;
+    return router();
+  }
+  if (action === 'track-edit-start') { editingTrackId = btn.dataset.id; return router(); }
+  if (action === 'track-edit-save') {
+    const form = btn.closest('.block-form');
+    const title = form.querySelector('[data-field="title"]').value.trim();
+    if (!title) return;
+    await supa.from('project_tracks').update({ title }).eq('id', btn.dataset.id);
+    editingTrackId = null;
+    return router();
+  }
+  if (action === 'track-delete') {
+    if (!confirm('Delete this track?')) return;
+    await supa.from('project_tracks').delete().eq('id', btn.dataset.id);
+    return router();
+  }
+  if (action === 'track-move-up' || action === 'track-move-down') {
+    const { data: current } = await supa.from('project_tracks').select('project_id').eq('id', btn.dataset.id).single();
+    if (current) await moveRow('project_tracks', btn.dataset.id, 'project_id', current.project_id, 'position', action === 'track-move-up' ? -1 : 1);
+    return router();
+  }
+
+  // -- videos --
+  if (action === 'video-add-start') { addingVideo = true; return router(); }
+  if (action === 'video-cancel') { addingVideo = false; editingVideoId = null; return router(); }
+  if (action === 'video-add-save') {
+    const form = btn.closest('.block-form');
+    const title = form.querySelector('[data-field="title"]').value.trim();
+    const youtube_id = extractYoutubeId(form.querySelector('[data-field="youtube_id"]').value);
+    if (!title || !youtube_id) return;
+    const { data: maxRow } = await supa.from('videos').select('sort_order').order('sort_order', { ascending: false }).limit(1).maybeSingle();
+    await supa.from('videos').insert({ title, youtube_id, sort_order: (maxRow?.sort_order ?? 0) + 1 });
+    addingVideo = false;
+    return router();
+  }
+  if (action === 'video-edit-start') { editingVideoId = btn.dataset.id; return router(); }
+  if (action === 'video-edit-save') {
+    const form = btn.closest('.block-form');
+    const title = form.querySelector('[data-field="title"]').value.trim();
+    const youtube_id = extractYoutubeId(form.querySelector('[data-field="youtube_id"]').value);
+    if (!title || !youtube_id) return;
+    await supa.from('videos').update({ title, youtube_id }).eq('id', btn.dataset.id);
+    editingVideoId = null;
+    return router();
+  }
+  if (action === 'video-delete') {
+    if (!confirm('Delete this video?')) return;
+    await supa.from('videos').delete().eq('id', btn.dataset.id);
+    return router();
+  }
+  if (action === 'video-move-up' || action === 'video-move-down') {
+    await moveRow('videos', btn.dataset.id, null, null, 'sort_order', action === 'video-move-up' ? -1 : 1);
+    return router();
+  }
+
+  // -- home page: streaming links --
+  if (action === 'streaminglink-add-start') { addingStreamingLink = true; return router(); }
+  if (action === 'streaminglink-cancel') { addingStreamingLink = false; editingStreamingLinkId = null; return router(); }
+  if (action === 'streaminglink-add-save') {
+    const form = btn.closest('.block-form');
+    const label = form.querySelector('[data-field="label"]').value.trim();
+    const href = form.querySelector('[data-field="href"]').value.trim();
+    if (!label || !href) return;
+    const { data: maxRow } = await supa.from('streaming_links').select('position').order('position', { ascending: false }).limit(1).maybeSingle();
+    await supa.from('streaming_links').insert({ label, href, position: (maxRow?.position ?? 0) + 1 });
+    addingStreamingLink = false;
+    return router();
+  }
+  if (action === 'streaminglink-edit-start') { editingStreamingLinkId = btn.dataset.id; return router(); }
+  if (action === 'streaminglink-edit-save') {
+    const form = btn.closest('.block-form');
+    const label = form.querySelector('[data-field="label"]').value.trim();
+    const href = form.querySelector('[data-field="href"]').value.trim();
+    if (!label || !href) return;
+    await supa.from('streaming_links').update({ label, href }).eq('id', btn.dataset.id);
+    editingStreamingLinkId = null;
+    return router();
+  }
+  if (action === 'streaminglink-delete') {
+    if (!confirm('Delete this link?')) return;
+    await supa.from('streaming_links').delete().eq('id', btn.dataset.id);
+    return router();
+  }
+  if (action === 'streaminglink-move-up' || action === 'streaminglink-move-down') {
+    await moveRow('streaming_links', btn.dataset.id, null, null, 'position', action === 'streaminglink-move-up' ? -1 : 1);
+    return router();
+  }
+
+  // -- home page: hero smart-link --
+  if (action === 'herolink-edit-start') { editingHeroLink = true; return router(); }
+  if (action === 'herolink-cancel') { editingHeroLink = false; return router(); }
+  if (action === 'herolink-save') {
+    const form = btn.closest('.block-form');
+    const hero_link_text = form.querySelector('[data-field="hero_link_text"]').value.trim();
+    const hero_link_href = form.querySelector('[data-field="hero_link_href"]').value.trim();
+    const { error } = await supa.from('site_theme').update({ hero_link_text, hero_link_href }).eq('id', 1);
+    if (error) { alert('Could not save: ' + error.message); return; }
+    theme.hero_link_text = hero_link_text;
+    theme.hero_link_href = hero_link_href;
+    editingHeroLink = false;
+    return router();
+  }
 });
 
 /* ---------- pages ---------- */
 
-const STREAMING_LINKS = [
-  { label: 'Spotify', href: 'https://open.spotify.com/artist/6SUbi1ZVEswHqRUWsxmq2m?si=J1NJa6XURiuALQ5woMGAGA' },
-  { label: 'Apple', href: 'https://music.apple.com/us/artist/kinrose/1570054161' },
-  { label: 'Youtube', href: 'https://www.youtube.com/channel/UCk0znp3fnhk32JFFi07npmw' },
-  { label: 'Amazon', href: 'https://music.amazon.com/artists/B09674TK37/kinrose' },
-  { label: 'Tidal', href: 'https://tidal.com/artist/25512438' },
-];
-
 async function renderHome() {
   document.title = 'kinrose | stream, merch, stay connected';
-  const links = STREAMING_LINKS.map((l, i) =>
-    `<a href="${l.href}" target="_blank" rel="noreferrer">${l.label}</a>${i < STREAMING_LINKS.length - 1 ? ' <span>&rarr;</span> ' : ''}`
+  const { data: linksData } = await supa.from('streaming_links').select('*').order('position', { ascending: true });
+  const streamingLinks = linksData ?? [];
+
+  const linksDisplay = streamingLinks.map((l, i) =>
+    `<a href="${escapeHtml(l.href)}" target="_blank" rel="noreferrer">${escapeHtml(l.label)}</a>${i < streamingLinks.length - 1 ? ' <span>&rarr;</span> ' : ''}`
   ).join('');
+
+  const heroLinkHtml = isAdmin && editingHeroLink
+    ? heroLinkForm()
+    : `<a class="smart-link" href="${escapeHtml(theme.hero_link_href)}" target="_blank" rel="noreferrer">${escapeHtml(theme.hero_link_text)} &rarr;</a>${isAdmin ? ` <button data-action="herolink-edit-start" class="text-xs px-2 py-0.5 rounded border border-white/30 ml-2 align-middle">Edit</button>` : ''}`;
+
+  const streamingManagerHtml = isAdmin ? `
+    <div class="mt-4 flex flex-col gap-2 max-w-md">
+      <p class="text-xs uppercase tracking-wide opacity-60">Streaming links</p>
+      ${streamingLinks.map((l, i) => editingStreamingLinkId === l.id ? streamingLinkForm(l) : streamingLinkRow(l, i === 0, i === streamingLinks.length - 1)).join('')}
+      ${addingStreamingLink ? streamingLinkForm(null) : `<button data-action="streaminglink-add-start" class="px-3 py-1.5 rounded border border-white/30 text-sm w-fit">+ Add streaming link</button>`}
+    </div>` : '';
+
   const zoneHtml = await renderZone('home');
   app.innerHTML = `
     <section class="hero">
-      <a class="smart-link" href="https://too.fm/ratedpg" target="_blank" rel="noreferrer">latest release: rated pg &rarr;</a>
-      <h1 class="streaming">${links}</h1>
+      ${heroLinkHtml}
+      <h1 class="streaming">${linksDisplay}</h1>
+      ${streamingManagerHtml}
     </section>
     <div class="wrap">${zoneHtml}</div>`;
 }
@@ -699,15 +1054,14 @@ async function renderProjectsList() {
   const { data, error } = await supa.from('projects').select('*').order('sort_order', { ascending: true });
   if (error) { app.innerHTML = `<p class="error">Could not load projects: ${escapeHtml(error.message)}</p>`; return; }
   const zoneHtml = await renderZone('projects');
-  app.innerHTML = `<section class="list">${data.map((p) => `
-    <article class="entry">
-      <time>${dateFmt(p.released_on, { month: 'numeric', day: 'numeric', year: '2-digit' })}</time>
-      <a href="#/projects/${p.slug}">
-        <img src="${escapeHtml(p.cover_image)}" alt="${escapeHtml(p.title)}" />
-        <h2>${escapeHtml(p.title)}</h2>
-      </a>
-      <a class="more" href="#/projects/${p.slug}">Read More</a>
-    </article>`).join('')}${zoneHtml}</section>`;
+  const addUi = isAdmin
+    ? (addingProject ? projectForm(null, false) : `<button data-action="project-add-start" class="px-3 py-1.5 rounded border border-white/30 text-sm">+ Add project</button>`)
+    : '';
+  app.innerHTML = `<section class="list">
+    ${addUi}
+    ${data.map((p, i) => isAdmin && editingProjectId === p.id ? projectForm(p, false) : projectCard(p, isAdmin, i === 0, i === data.length - 1)).join('')}
+    ${zoneHtml}
+  </section>`;
 }
 
 async function renderProjectDetail(slug) {
@@ -725,12 +1079,19 @@ async function renderProjectDetail(slug) {
 
   let tracklistHtml = '';
   if (project.show_tracklist) {
-    const { data: tracks } = await supa
+    const { data: fetchedTracks } = await supa
       .from('project_tracks')
-      .select('position, title')
+      .select('*')
       .eq('project_id', project.id)
       .order('position', { ascending: true });
-    tracklistHtml = `<ol class="tracklist">${(tracks ?? []).map((t) => `<li>${escapeHtml(t.title)}</li>`).join('')}</ol>`;
+    const tracks = fetchedTracks ?? [];
+    const items = tracks.map((t, idx) =>
+      isAdmin && editingTrackId === t.id ? trackForm(t, project.id) : trackRow(t, isAdmin, idx === 0, idx === tracks.length - 1)
+    ).join('');
+    const addTrackUi = isAdmin
+      ? (addingTrackForProject === project.id ? trackForm(null, project.id) : `<button data-action="track-add-start" data-project-id="${project.id}" class="px-3 py-1 rounded border border-white/30 text-sm mt-2">+ Add track</button>`)
+      : '';
+    tracklistHtml = `<ol class="tracklist">${items}</ol>${addTrackUi}`;
   }
 
   const coverImg = `<img class="cover" src="${escapeHtml(project.cover_image)}" alt="${escapeHtml(project.title)}" />`;
@@ -742,11 +1103,19 @@ async function renderProjectDetail(slug) {
   const bodyHtml = project.body_html ? `<div class="body">${project.body_html}</div>` : '';
   const zoneHtml = await renderZone(`project:${slug}`);
 
-  app.innerHTML = `
-    <article class="post">
+  const isEditingThisProject = isAdmin && editingProjectId === project.id;
+  const editUi = isAdmin
+    ? (isEditingThisProject ? projectForm(project, true) : `<button data-action="project-edit-start" data-id="${project.id}" class="px-3 py-1.5 rounded border border-white/30 text-sm mb-4">Edit project</button>`)
+    : '';
+  const headerHtml = isEditingThisProject ? '' : `
       <h1>${escapeHtml(project.title)}</h1>
       <time>${dateFmt(project.released_on, { month: 'short', day: 'numeric' })}</time>
-      ${coverHtml}
+      ${coverHtml}`;
+
+  app.innerHTML = `
+    <article class="post">
+      ${editUi}
+      ${headerHtml}
       ${tracklistHtml}
       ${bodyHtml}
       ${zoneHtml}
@@ -763,14 +1132,15 @@ async function renderVideos() {
   const { data, error } = await supa.from('videos').select('*').order('sort_order', { ascending: true });
   if (error) { app.innerHTML = `<p class="error">Could not load videos: ${escapeHtml(error.message)}</p>`; return; }
   const zoneHtml = await renderZone('videos');
-  app.innerHTML = `<section class="grid">${data.map((v) => `
-    <div class="video">
-      <div class="frame">
-        <iframe src="https://www.youtube.com/embed/${encodeURIComponent(v.youtube_id)}" title="${escapeHtml(v.title)}" loading="lazy"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-      </div>
-      <p>${escapeHtml(v.title)}</p>
-    </div>`).join('')}</section><div class="wrap">${zoneHtml}</div>`;
+  const addUi = isAdmin
+    ? (addingVideo ? videoForm(null) : `<button data-action="video-add-start" class="px-3 py-1.5 rounded border border-white/30 text-sm">+ Add video</button>`)
+    : '';
+  app.innerHTML = `
+    <section class="grid">
+      ${data.map((v, i) => isAdmin && editingVideoId === v.id ? videoForm(v) : videoRow(v, isAdmin, i === 0, i === data.length - 1)).join('')}
+    </section>
+    <div class="wrap">${addUi}</div>
+    <div class="wrap">${zoneHtml}</div>`;
 }
 
 function router() {
