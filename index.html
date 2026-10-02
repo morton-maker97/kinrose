@@ -113,6 +113,11 @@
 </head>
 <body class="bg-[var(--bg)]">
 
+<div id="admin-banner" class="fixed top-0 left-0 w-full z-[60] bg-amber-400 text-amber-950 text-sm text-center py-2 px-4" hidden>
+  You're viewing the admin version of this site — changes here go live for everyone.
+  <a href="#" data-action="logout" class="underline ml-2">Log out</a>
+</div>
+
 <header class="nav">
   <div class="wrap nav-inner">
     <a href="#/"><img src="images/logo.png" alt="kinrose" /></a>
@@ -324,10 +329,16 @@ async function refreshAdminState() {
 
 function renderAdminChrome() {
   const slot = document.getElementById('admin-nav-slot');
-  if (!slot) return;
-  slot.innerHTML = isAdmin
-    ? `<a href="#" data-action="theme-open">theme</a><a href="#" data-action="logout">logout</a>`
-    : `<a href="#" data-action="login-open">admin</a>`;
+  if (slot) {
+    slot.innerHTML = isAdmin
+      ? `<a href="#" data-action="theme-open">theme</a><a href="#" data-action="logout">logout</a>`
+      : `<a href="#" data-action="login-open">admin</a>`;
+  }
+  const banner = document.getElementById('admin-banner');
+  if (banner) {
+    banner.hidden = !isAdmin;
+    document.body.classList.toggle('pt-9', isAdmin);
+  }
 }
 
 supa.auth.onAuthStateChange(async () => {

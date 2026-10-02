@@ -29,6 +29,12 @@ hasn't been run yet, or `config.js` still has the placeholder `YOUR-PROJECT-REF`
 real Supabase URL/key. Open the browser's console (right-click → Inspect → Console) on the page for the
 actual error.
 
+**Already ran the old `schema.sql` before admin login existed?** Run
+[`supabase/fix_authenticated_reads.sql`](supabase/fix_authenticated_reads.sql) once now — it patches a bug
+where logging in as admin made the projects/videos pages look empty (the original policies only allowed
+reads from logged-out visitors; this adds logged-in reads too). A fresh setup following the steps below
+doesn't need this extra file, since the fix is already folded into `schema.sql` itself.
+
 ### 2b. Set up your admin login (so you can edit the live site yourself)
 This is optional, but it's what gives you the Squarespace-style "edit anything while logged in" experience.
 
@@ -88,7 +94,8 @@ once it's verified.
 ## Using the admin panel
 
 Once you've done step 2b, click **admin** in the site's nav bar and log in with the email/password you
-created. While logged in:
+created. While logged in, a yellow banner across the top of every page reminds you that you're in admin
+mode and that changes are live for everyone (with a quick **Log out** link right there). You'll also see:
 
 - **theme** (nav link) opens a panel to change the background color, text color, muted-text color, card
   background color, corner roundness, and heading/body fonts — site-wide, applied instantly, no redeploy.
