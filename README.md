@@ -9,6 +9,8 @@ A plain static site (one `index.html`, no build step, no Node/npm) + Supabase, m
 - `supabase/schema.sql`, `supabase/seed.sql` — the database, and the content migrated from the live site
 - `images/` — cover art and photos downloaded from the old Squarespace CDN
 - `CNAME` — tells GitHub Pages this site should answer at `kinrose.co`
+- `supabase/admin_schema.sql` — adds your admin login, a site-wide theme (colors/fonts/corners), and
+  freeform content blocks (text/image/card) you can add to any page
 
 ## One-time setup (everything in a browser — no installs)
 
@@ -26,6 +28,23 @@ If the projects or videos pages look empty once the site is live, it's almost al
 hasn't been run yet, or `config.js` still has the placeholder `YOUR-PROJECT-REF` values instead of your
 real Supabase URL/key. Open the browser's console (right-click → Inspect → Console) on the page for the
 actual error.
+
+### 2b. Set up your admin login (so you can edit the live site yourself)
+This is optional, but it's what gives you the Squarespace-style "edit anything while logged in" experience.
+
+1. **SQL Editor → New query** → paste and run [`supabase/admin_schema.sql`](supabase/admin_schema.sql).
+2. **Authentication → Users → Add user** → enter your email + a password you'll remember (leave "Auto Confirm
+   User" checked, so you don't need to verify by email). Copy the new user's **User UID**.
+3. **SQL Editor → New query** → run (with your real UID pasted in):
+   ```sql
+   insert into admins (user_id) values ('paste-the-uid-here');
+   ```
+   That row is what makes that one login an admin. Nobody else can ever sign up through the site itself —
+   you create every admin by hand, the same way.
+4. **Storage → New bucket** → name it exactly `site-images` → toggle **Public bucket: ON** → create it.
+   (This is where images you upload through the admin panel get stored.)
+5. Back in **SQL Editor**, scroll to the bottom of `admin_schema.sql` and re-run just the four `storage.objects`
+   policies if they didn't take the first time (they only work once the bucket above actually exists).
 
 ### 3. Get your API keys
 **Project Settings → API**. Copy the **Project URL** and the **anon public** key (never the `service_role` key).
@@ -66,12 +85,34 @@ GitHub Pages ([GitHub's guide](https://docs.github.com/en/pages/configuring-a-cu
 Then in the repo's **Settings → Pages**, add `kinrose.co` as the custom domain and enable **Enforce HTTPS**
 once it's verified.
 
+## Using the admin panel
+
+Once you've done step 2b, click **admin** in the site's nav bar and log in with the email/password you
+created. While logged in:
+
+- **theme** (nav link) opens a panel to change the background color, text color, muted-text color, card
+  background color, corner roundness, and heading/body fonts — site-wide, applied instantly, no redeploy.
+- On every page, you'll see **+ Text / + Image / + Card** buttons. These add new content blocks right on
+  that page — a text block (plain paragraphs), an image (paste a URL or upload a file from your computer),
+  or a card (image + title + text, styled like the project cards). Each existing block gets **Edit**,
+  **Delete**, and **↑ / ↓** (reorder) controls.
+- Blocks you add to a specific project's page only show on that project; blocks added on the home, projects,
+  or videos pages show there respectively.
+- **logout** signs you out — visitors never see any of these controls or buttons, and even if someone found
+  a way to fake being logged in, the database itself (Row Level Security) refuses any write that isn't from
+  your actual admin account.
+
+Everything here is powered by [Tailwind](https://tailwindcss.com) (loaded from a CDN, no build step) for the
+admin UI's layout, and plain CSS variables for the parts you can recolor from the theme panel.
+
 ## Making changes later
 
-- **Content** (release info, tracklists, videos): edit the rows directly in **Supabase → Table Editor**. Changes
-  show up immediately — no redeploy needed, since the page reads from Supabase live.
-- **Design/layout**: edit `index.html` on github.com (click the pencil icon) or re-upload a new version the same
-  way as step 5.
+- **Theme/content** (colors, fonts, text/image/card blocks): use the admin panel above — no file edits or
+  redeploys needed.
+- **Original migrated content** (release info, tracklists, videos): edit the rows directly in
+  **Supabase → Table Editor**. Changes show up immediately.
+- **Code/layout itself**: edit `index.html` on github.com (click the pencil icon) or re-upload a new version
+  the same way as step 5.
 
 ## Connecting merch (Shopify)
 
