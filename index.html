@@ -338,9 +338,11 @@ async function refreshAdminState() {
 function renderAdminChrome() {
   const slot = document.getElementById('admin-nav-slot');
   if (slot) {
+    // No visible "admin" link for logged-out visitors -- the login modal only opens via
+    // the Cmd/Ctrl+Shift+\ shortcut (see the keydown listener below).
     slot.innerHTML = isAdmin
       ? `<a href="#" data-action="theme-open">theme</a><a href="#" data-action="logout">logout</a>`
-      : `<a href="#" data-action="login-open">admin</a>`;
+      : '';
   }
   const banner = document.getElementById('admin-banner');
   if (banner) {
@@ -364,6 +366,15 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   err.textContent = '';
   e.target.reset();
   hideModal('login-modal');
+});
+
+// Secret admin entry point: Cmd+Shift+\ (Mac) or Ctrl+Shift+\ (Windows/Linux). There's no
+// visible "admin" link for logged-out visitors -- this is the only way in.
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '\\') {
+    e.preventDefault();
+    if (!isAdmin) showModal('login-modal');
+  }
 });
 
 /* ---------- content blocks ---------- */
