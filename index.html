@@ -105,6 +105,10 @@
 
   input[type=color] { -webkit-appearance: none; border: none; width: 36px; height: 36px; border-radius: 6px; padding: 0; background: none; }
   input[type=color]::-webkit-color-swatch { border-radius: 6px; border: 1px solid rgba(0,0,0,0.2); }
+
+  /* Tailwind's "flex" utility on the modals ties with the native [hidden] rule in specificity
+     and wins (author styles beat the browser's UA default either way) -- force hidden to actually hide. */
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body class="bg-[var(--bg)]">
@@ -156,10 +160,13 @@
   </div>
 </div>
 
-<!-- admin: theme settings modal -->
-<div id="theme-modal" class="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" hidden>
-  <div class="bg-[var(--card-bg)] text-[var(--text)] rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
-    <h2 class="text-lg mb-4 lowercase">site theme</h2>
+<!-- admin: theme settings drawer -- edits preview live on the page; "Save" is what persists them -->
+<div id="theme-drawer" class="fixed top-0 right-0 h-full w-80 max-w-full bg-[var(--card-bg)] text-[var(--text)] shadow-2xl z-50 transform translate-x-full transition-transform duration-300 overflow-y-auto p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-lg lowercase">site theme</h2>
+    <button type="button" data-action="theme-close" class="text-2xl leading-none px-2">&times;</button>
+  </div>
+  <div>
     <div class="grid grid-cols-2 gap-4">
       <label class="flex items-center justify-between text-sm">Background <input type="color" id="theme-bg" /></label>
       <label class="flex items-center justify-between text-sm">Text <input type="color" id="theme-text" /></label>
@@ -195,9 +202,9 @@
         <option value="spacegrotesk">Space Grotesk</option>
       </select>
     </label>
-    <div class="flex gap-2 justify-end mt-6">
-      <button type="button" data-action="theme-close" class="px-4 py-2 rounded border border-white/30">Cancel</button>
-      <button type="button" data-action="theme-save" class="px-4 py-2 rounded bg-[var(--text)] text-[var(--bg)]">Save</button>
+    <div class="sticky bottom-0 bg-[var(--card-bg)] pt-4 mt-6 -mx-6 px-6 -mb-6 pb-6">
+      <button type="button" data-action="theme-save" class="w-full px-4 py-2 rounded bg-[var(--text)] text-[var(--bg)]">Save for everyone</button>
+      <p id="theme-save-status" class="text-xs text-center mt-2 min-h-[1em] opacity-80"></p>
     </div>
   </div>
 </div>
@@ -252,19 +259,10 @@ async function fetchTheme() {
   applyTheme(theme);
 }
 
-function openThemePanel() {
-  document.getElementById('theme-bg').value = theme.bg_color;
-  document.getElementById('theme-text').value = theme.text_color;
-  document.getElementById('theme-text-dim').value = theme.text_dim_color;
-  document.getElementById('theme-card-bg').value = theme.card_bg_color;
-  document.getElementById('theme-radius').value = theme.radius;
-  document.getElementById('theme-heading-font').value = theme.heading_font;
-  document.getElementById('theme-body-font').value = theme.body_font;
-  showModal('theme-modal');
-}
+const THEME_FIELD_IDS = ['theme-bg', 'theme-text', 'theme-text-dim', 'theme-card-bg', 'theme-radius', 'theme-heading-font', 'theme-body-font'];
 
-async function saveTheme() {
-  const updated = {
+function readThemeForm() {
+  return {
     bg_color: document.getElementById('theme-bg').value,
     text_color: document.getElementById('theme-text').value,
     text_dim_color: document.getElementById('theme-text-dim').value,
@@ -273,11 +271,44 @@ async function saveTheme() {
     heading_font: document.getElementById('theme-heading-font').value,
     body_font: document.getElementById('theme-body-font').value,
   };
+}
+
+// Every field change previews instantly on the live page -- nothing is saved until "Save for everyone".
+function previewTheme() {
+  applyTheme(readThemeForm());
+}
+
+THEME_FIELD_IDS.forEach((id) => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', previewTheme);
+  el.addEventListener('change', previewTheme);
+});
+
+function openThemeDrawer() {
+  document.getElementById('theme-bg').value = theme.bg_color;
+  document.getElementById('theme-text').value = theme.text_color;
+  document.getElementById('theme-text-dim').value = theme.text_dim_color;
+  document.getElementById('theme-card-bg').value = theme.card_bg_color;
+  document.getElementById('theme-radius').value = theme.radius;
+  document.getElementById('theme-heading-font').value = theme.heading_font;
+  document.getElementById('theme-body-font').value = theme.body_font;
+  document.getElementById('theme-drawer').classList.remove('translate-x-full');
+}
+
+function closeThemeDrawer() {
+  applyTheme(theme); // discard any unsaved live preview, revert to what's actually saved
+  document.getElementById('theme-drawer').classList.add('translate-x-full');
+}
+
+async function saveTheme() {
+  const updated = readThemeForm();
+  const statusEl = document.getElementById('theme-save-status');
   const { error } = await supa.from('site_theme').update(updated).eq('id', 1);
-  if (error) { alert('Could not save theme: ' + error.message); return; }
+  if (error) { statusEl.textContent = 'Could not save: ' + error.message; return; }
   theme = updated;
   applyTheme(theme);
-  hideModal('theme-modal');
+  statusEl.textContent = 'Saved.';
+  setTimeout(() => { statusEl.textContent = ''; }, 2000);
 }
 
 /* ---------- admin / auth ---------- */
@@ -369,8 +400,55 @@ function blockFormFields(type, c) {
     <input data-field="file" type="file" accept="image/*" class="w-full text-sm" />`;
 }
 
+// Shared renderer: used both for a saved block's normal view AND for the live preview
+// inside an add/edit form, so the preview always matches exactly what will be saved.
+function renderBlockContent(type, content) {
+  content = content || {};
+  if (type === 'text') {
+    const paras = (content.text || '').split('\n').filter(Boolean).map((l) => `<p>${escapeHtml(l)}</p>`).join('');
+    return `<div class="block-text">${paras || '<p class="opacity-50 text-sm">(empty)</p>'}</div>`;
+  }
+  if (type === 'image') {
+    return content.url
+      ? `<img src="${escapeHtml(content.url)}" alt="${escapeHtml(content.alt || '')}" class="block-image" />`
+      : '<p class="opacity-50 text-sm">No image yet</p>';
+  }
+  return `<div class="card">
+    ${content.image_url ? `<img src="${escapeHtml(content.image_url)}" alt="" />` : ''}
+    ${content.title ? `<h3>${escapeHtml(content.title)}</h3>` : ''}
+    ${content.body ? `<p>${escapeHtml(content.body)}</p>` : ''}
+    ${!content.image_url && !content.title && !content.body ? '<p class="opacity-50 text-sm">(empty card)</p>' : ''}
+  </div>`;
+}
+
+function readBlockFormValuesForPreview(form, type) {
+  const get = (name) => form.querySelector(`[data-field="${name}"]`);
+  const fileInput = get('file');
+  const filePreviewUrl = fileInput && fileInput.files && fileInput.files[0] ? URL.createObjectURL(fileInput.files[0]) : null;
+  if (type === 'text') return { text: get('text')?.value || '' };
+  if (type === 'image') return { url: filePreviewUrl || (get('url')?.value || ''), alt: get('alt')?.value || '' };
+  return {
+    title: get('title')?.value || '',
+    body: get('body')?.value || '',
+    image_url: filePreviewUrl || (get('image_url')?.value || ''),
+  };
+}
+
+// Live-updates a form's preview as any of its fields change -- nothing is saved here.
+document.addEventListener('input', handleBlockFormLivePreview);
+document.addEventListener('change', handleBlockFormLivePreview);
+function handleBlockFormLivePreview(e) {
+  const form = e.target.closest('.block-form');
+  if (!form) return;
+  const preview = form.querySelector('.block-preview');
+  if (!preview) return;
+  preview.innerHTML = renderBlockContent(form.dataset.type, readBlockFormValuesForPreview(form, form.dataset.type));
+}
+
 function blockAddForm(zone, type) {
   return `<div class="block-form p-4 rounded border border-dashed border-white/40" data-type="${type}">
+    <p class="text-xs uppercase tracking-wide opacity-60 mb-1">Preview</p>
+    <div class="block-preview mb-3">${renderBlockContent(type, null)}</div>
     ${blockFormFields(type, null)}
     <div class="flex gap-2 justify-end mt-3">
       <button data-action="block-add-cancel" class="px-3 py-1.5 rounded border border-white/30 text-sm">Cancel</button>
@@ -381,6 +459,8 @@ function blockAddForm(zone, type) {
 
 function blockEditForm(b) {
   return `<div class="block-form p-4 rounded border border-dashed border-white/40" data-type="${b.type}">
+    <p class="text-xs uppercase tracking-wide opacity-60 mb-1">Preview</p>
+    <div class="block-preview mb-3">${renderBlockContent(b.type, b.content)}</div>
     ${blockFormFields(b.type, b.content)}
     <div class="flex gap-2 justify-end mt-3">
       <button data-action="block-edit-cancel" class="px-3 py-1.5 rounded border border-white/30 text-sm">Cancel</button>
@@ -390,18 +470,7 @@ function blockEditForm(b) {
 }
 
 function renderBlockView(b, isFirst, isLast) {
-  let inner = '';
-  if (b.type === 'text') {
-    inner = `<div class="block-text">${(b.content.text || '').split('\n').filter(Boolean).map((l) => `<p>${escapeHtml(l)}</p>`).join('')}</div>`;
-  } else if (b.type === 'image') {
-    inner = b.content.url ? `<img src="${escapeHtml(b.content.url)}" alt="${escapeHtml(b.content.alt || '')}" class="block-image" />` : '';
-  } else if (b.type === 'card') {
-    inner = `<div class="card">
-      ${b.content.image_url ? `<img src="${escapeHtml(b.content.image_url)}" alt="" />` : ''}
-      ${b.content.title ? `<h3>${escapeHtml(b.content.title)}</h3>` : ''}
-      ${b.content.body ? `<p>${escapeHtml(b.content.body)}</p>` : ''}
-    </div>`;
-  }
+  const inner = renderBlockContent(b.type, b.content);
   const controls = isAdmin ? `
     <div class="flex gap-2 mt-2 text-xs opacity-80">
       <button data-action="block-move-up" data-id="${b.id}" class="px-2 py-1 rounded border border-white/30" ${isFirst ? 'disabled' : ''}>&uarr;</button>
@@ -453,8 +522,8 @@ document.addEventListener('click', async (e) => {
   if (action === 'login-open') return showModal('login-modal');
   if (action === 'login-close') return hideModal('login-modal');
   if (action === 'logout') return supa.auth.signOut();
-  if (action === 'theme-open') return openThemePanel();
-  if (action === 'theme-close') return hideModal('theme-modal');
+  if (action === 'theme-open') return openThemeDrawer();
+  if (action === 'theme-close') return closeThemeDrawer();
   if (action === 'theme-save') return saveTheme();
 
   if (action === 'block-add-start') { addingToZone = btn.dataset.zone; addingType = btn.dataset.type; return router(); }
